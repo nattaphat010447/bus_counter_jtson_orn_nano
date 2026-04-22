@@ -10,7 +10,7 @@ echo "[Info] Setting up Jetson Orin Nano Environment..."
 # 1. Install dependencies
 echo "[Info] Installing Python dependencies..."
 pip3 install -U pip
-pip3 install -U ultralytics scipy onnx onnxscript onnxsim "numpy<2.0.0" transformers
+pip3 install -U Pillow ultralytics scipy onnx onnxscript onnxsim "numpy<2.0.0" transformers
 pip3 install --upgrade wrapt 
 pip3 install --no-cache-dir --force-reinstall --no-binary=pycuda pycuda
 

@@ -1,5 +1,8 @@
 import logging
 import os
+
+os.environ['TORCH_WEIGHTS_ONLY_LOAD'] = '0'
+
 import sys
 from ultralytics import YOLO
 

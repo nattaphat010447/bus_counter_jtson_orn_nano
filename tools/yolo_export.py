@@ -1,14 +1,17 @@
 import os
 import sys
 import logging
+import functools
 
 import torch
-try:
-    from ultralytics.nn.tasks import DetectionModel
-    torch.serialization.add_safe_globals([DetectionModel])
-except Exception:
-    pass
-os.environ['TORCH_WEIGHTS_ONLY_LOAD'] = '0'
+_orig_torch_load = torch.load
+
+@functools.wraps(_orig_torch_load)
+def _patched_torch_load(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(*args, **kwargs)
+
+torch.load = _patched_torch_load
 
 from ultralytics import YOLO
 

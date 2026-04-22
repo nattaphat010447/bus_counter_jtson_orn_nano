@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import functools
 import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,7 +17,7 @@ ONNX_OUTPUT_PATH  = os.path.join(BASE_DIR, 'models', f"{MODEL_NAMES['mivolo']}.o
 np.Inf = np.inf
 
 # ---------------------------------------------------------------------------
-# Monkey Patch: Protobuf version check bypass for transformers library
+# Monkey Patch #1: Protobuf version check bypass for transformers library
 # ---------------------------------------------------------------------------
 try:
     import google.protobuf
@@ -34,12 +35,28 @@ try:
 except Exception:
     pass
 
+# ---------------------------------------------------------------------------
+# Monkey Patch #2: PyTorch >= 2.6 weights_only=True default breaks
+# transformers / MiVOLO checkpoint loading. Force weights_only=False.
+# MUST be applied BEFORE importing transformers.
+# ---------------------------------------------------------------------------
 import torch
+
+_orig_torch_load = torch.load
+
+@functools.wraps(_orig_torch_load)
+def _patched_torch_load(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(*args, **kwargs)
+
+torch.load = _patched_torch_load
+logger.info("Patched torch.load to weights_only=False (PyTorch >=2.6 compat).")
+
 import torch.nn.functional as F
 from transformers import AutoModelForImageClassification, AutoImageProcessor
 
 # ---------------------------------------------------------------------------
-# Monkey Patch: TensorRT Compatibility (Col2Im / F.fold → ConvTranspose2d)
+# Monkey Patch #3: TensorRT Compatibility (Col2Im / F.fold -> ConvTranspose2d)
 # ---------------------------------------------------------------------------
 logger.info("Applying F.fold patch for TensorRT compatibility...")
 

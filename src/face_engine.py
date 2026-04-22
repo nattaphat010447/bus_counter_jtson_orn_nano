@@ -25,8 +25,11 @@ class FaceEngine:
         else:
             if ort is None:
                 raise ImportError("onnxruntime is required for .onnx execution")
-            self.mivolo_model = ort.InferenceSession(mivolo_path)
-            self.input_names = [i.name for i in self.mivolo_model.get_inputs()]
+            
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            self.mivolo_model = ort.InferenceSession(mivolo_path, providers=providers)
+            self.input_names = [inp.name for inp in self.mivolo_model.get_inputs()]
+
             logger.info("Loaded ONNX backend for FaceEngine: %s", mivolo_path)
 
         # Smoothing buffer

@@ -102,10 +102,16 @@ def run_mivolo(source, is_image: bool = False) -> None:
         return
 
     cap = cv2.VideoCapture(source)
+    frame_count = 0
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
+
+        frame_count += 1
+        if frame_count % 2 != 0: 
+            continue
 
         start_time = time.time()
         annotated_frame, _ = face_analyzer.process_frame(frame)

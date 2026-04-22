@@ -112,11 +112,6 @@ def export_mivolo() -> None:
             do_constant_folding=True,
             input_names=["pixel_values_face", "pixel_values_body"],
             output_names=["logits"],
-            dynamic_axes={
-                "pixel_values_face": {0: "batch_size"},
-                "pixel_values_body": {0: "batch_size"},
-                "logits":            {0: "batch_size"},
-            },
         )
 
     logger.info("ONNX export complete: %s", ONNX_OUTPUT_PATH)

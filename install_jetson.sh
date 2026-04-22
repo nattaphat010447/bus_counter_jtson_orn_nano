@@ -27,6 +27,11 @@ if [ -f "models/yolov11n-face.onnx" ]; then
 fi
 
 # 3. miVOLO Conversion (PT -> ONNX -> Engine)
+REM Install MiVOLO explicitly without build isolation
+echo "[Info] Installing MiVOLO..."
+pip install --upgrade wrapt 
+pip install --no-build-isolation git+https://github.com/WildChlamydia/MiVOLO.git
+
 echo "[Info] Processing miVOLO model..."
 python3 tools/mivolo_export.py
 if [ -f "mivolo_v2.onnx" ]; then
@@ -46,5 +51,7 @@ fi
 
 echo "[Info] Fixing PyCUDA for Jetson..."
 pip3 install --no-cache-dir --force-reinstall --no-binary=pycuda pycuda
+
+pip3 install -U ultralytics
 
 echo "[Info] Jetson setup completed. All engines compiled."

@@ -12,6 +12,7 @@ call venv\Scripts\activate
 
 REM Install dependencies
 echo [Info] Installing requirements...
+python.exe -m pip install --upgrade pip
 pip install -U pip
 pip install -r requirements.txt
 pip install transformers
@@ -27,6 +28,16 @@ pip install -U ultralytics
 REM Export YOLO to ONNX
 echo [Info] Exporting YOLO models...
 python tools/yolo_export.py
+
+REM Install MiVOLO explicitly without build isolation
+echo [Info] Installing MiVOLO...
+pip install --upgrade wrapt 
+pip install --no-build-isolation git+https://github.com/WildChlamydia/MiVOLO.git
+
+REM miVOLO Conversion
+echo [Info] Processing miVOLO model...
+python tools/mivolo_export.py
+pip install -U ultralytics
 
 echo [Info] Windows setup completed.
 pause

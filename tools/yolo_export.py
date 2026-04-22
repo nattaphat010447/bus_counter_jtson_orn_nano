@@ -1,37 +1,40 @@
+import logging
 import os
 import sys
 from ultralytics import YOLO
 
-# Resolve project root directory
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.utils import MODEL_NAMES, setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
+BASE_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 MODELS_DIR = os.path.join(BASE_DIR, 'models')
 
-def export_yolo_models():
-    # Target models for the pipeline
+def export_yolo_models() -> None:
     target_models = [
-        "yolov8n.pt",
-        "yolov8n-face.pt"
+        f"{MODEL_NAMES['tracker']}.pt",
+        f"{MODEL_NAMES['face']}.pt",
     ]
 
     for model_file in target_models:
         model_path = os.path.join(MODELS_DIR, model_file)
-        
-        # Check model existence before processing
+
         if not os.path.exists(model_path):
-            print(f"[Warning] Model not found: {model_path}. Skipping.")
+            logger.warning("Model not found: %s — skipping", model_path)
             continue
 
-        print(f"[Info] Exporting {model_file}...")
+        logger.info("Exporting %s ...", model_file)
         try:
             model = YOLO(model_path)
-            
-            # Export using CPU to bypass Jetson PyTorch cuDNN tracing bugs
-            # dynamic=False is required for stable TensorRT optimization
+            # CPU export หลีกเลี่ยง Jetson PyTorch cuDNN tracing bug
+            # dynamic=False จำเป็นสำหรับ TensorRT optimization ที่เสถียร
             model.export(format="onnx", device="cpu", dynamic=False)
-            
-            print(f"[Success] Exported ONNX for {model_file}")
-        except Exception as e:
-            print(f"[Error] Failed to export {model_file}: {e}")
+            logger.info("ONNX export complete: %s", model_file)
+        except Exception:
+            logger.exception("Failed to export %s", model_file)
 
 if __name__ == "__main__":
     export_yolo_models()

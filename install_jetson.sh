@@ -21,9 +21,9 @@ pip install -U ultralytics
 # 2. YOLO Conversion (PT -> ONNX -> Engine)
 echo "[Info] Processing YOLO model..."
 python3 tools/yolo_export.py
-if [ -f "models/yolov12n-face.onnx" ]; then
+if [ -f "models/yolov11n-face.onnx" ]; then
     echo "[Info] Compiling YOLO TensorRT Engine..."
-    /usr/src/tensorrt/bin/trtexec --onnx=models/yolov12n-face.onnx --saveEngine=models/yolov12n-face.engine --fp16
+    /usr/src/tensorrt/bin/trtexec --onnx=models/yolov11n-face.onnx --saveEngine=models/yolov11n-face.engine --fp16
 fi
 
 # 3. miVOLO Conversion (PT -> ONNX -> Engine)

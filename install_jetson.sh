@@ -15,6 +15,9 @@ pip3 install onnx onnxscript onnxsim "numpy<2.0.0"
 echo "[Info] Checking and downloading missing models..."
 python3 tools/download_models.py
 
+echo Updating ultralytics...
+pip install -U ultralytics
+
 # 2. YOLO Conversion (PT -> ONNX -> Engine)
 echo "[Info] Processing YOLO model..."
 python3 tools/yolo_export.py

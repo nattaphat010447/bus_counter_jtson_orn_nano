@@ -19,6 +19,10 @@ REM Check and download missing models
 echo [Info] Checking and downloading missing models...
 python tools/download_models.py
 
+REM Update ultralytics
+echo Updating ultralytics...
+pip install -U ultralytics
+
 REM Export YOLO to ONNX
 echo [Info] Exporting YOLO models...
 python tools/yolo_export.py

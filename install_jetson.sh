@@ -10,7 +10,7 @@ echo "[Info] Setting up Jetson Orin Nano Environment..."
 # 1. Install required packages
 echo "[Info] Installing Python dependencies..."
 pip3 install -U ultralytics scipy
-pip3 install onnx onnxscript onnxsim "numpy<2.0.0"
+pip3 install onnx onnxscript onnxsim "numpy<2.0.0" transformers
 
 echo "[Info] Checking and downloading missing models..."
 python3 tools/download_models.py

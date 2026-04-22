@@ -14,6 +14,7 @@ REM Install dependencies
 echo [Info] Installing requirements...
 pip install -U pip
 pip install -r requirements.txt
+pip install transformers
 
 REM Check and download missing models
 echo [Info] Checking and downloading missing models...

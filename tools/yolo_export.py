@@ -4,8 +4,7 @@ import sys
 from ultralytics import YOLO
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from src.utils import MODEL_NAMES, setup_logging
+from src.utils import MODEL_NAMES, setup_logging, is_jetson
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -18,6 +17,7 @@ def export_yolo_models() -> None:
         f"{MODEL_NAMES['tracker']}.pt",
         f"{MODEL_NAMES['face']}.pt",
     ]
+    on_jetson = is_jetson()
 
     for model_file in target_models:
         model_path = os.path.join(MODELS_DIR, model_file)
@@ -26,13 +26,18 @@ def export_yolo_models() -> None:
             logger.warning("Model not found: %s — skipping", model_path)
             continue
 
-        logger.info("Exporting %s ...", model_file)
         try:
             model = YOLO(model_path)
-            # CPU export หลีกเลี่ยง Jetson PyTorch cuDNN tracing bug
-            # dynamic=False จำเป็นสำหรับ TensorRT optimization ที่เสถียร
-            model.export(format="onnx", device="cpu", dynamic=False)
-            logger.info("ONNX export complete: %s", model_file)
+            if on_jetson:
+                logger.info("Compiling TensorRT Engine for %s ...", model_file)
+                # device="cpu" หลบ cuDNN bug บน Jetson 
+                # format="engine" สร้างไฟล์ .engine อัตโนมัติและแก้บั๊ก Cask ให้ในตัว
+                model.export(format="engine", device="cpu", half=True, dynamic=False, workspace=2)
+                logger.info("Engine compilation complete: %s", model_file.replace('.pt', '.engine'))
+            else:
+                logger.info("Exporting ONNX for %s ...", model_file)
+                model.export(format="onnx", device="cpu", dynamic=False)
+                logger.info("ONNX export complete: %s", model_file.replace('.pt', '.onnx'))
         except Exception:
             logger.exception("Failed to export %s", model_file)
 

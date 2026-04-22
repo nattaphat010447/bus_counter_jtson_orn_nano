@@ -7,3 +7,4 @@ lapx>=0.5.1
 torch>=2.0.0
 torchvision
 onnxruntime-gpu
+transformers

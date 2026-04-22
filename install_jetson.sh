@@ -36,7 +36,7 @@ echo "[Info] Processing miVOLO model..."
 python3 tools/mivolo_export.py
 if [ -f "mivolo_v2.onnx" ]; then
     echo "[Info] Simplifying miVOLO ONNX..."
-    onnxsim mivolo_v2.onnx models/mivolo_v2_sim.onnx
+    onnxsim models/mivolo_v2.onnx models/mivolo_v2_sim.onnx
     
     echo "[Info] Compiling miVOLO TensorRT Engine (Expected time: 10-20 mins)..."
     /usr/src/tensorrt/bin/trtexec \

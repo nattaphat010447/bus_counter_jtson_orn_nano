@@ -1,9 +1,15 @@
-import logging
 import os
+import sys
+import logging
 
+import torch
+try:
+    from ultralytics.nn.tasks import DetectionModel
+    torch.serialization.add_safe_globals([DetectionModel])
+except Exception:
+    pass
 os.environ['TORCH_WEIGHTS_ONLY_LOAD'] = '0'
 
-import sys
 from ultralytics import YOLO
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -33,8 +39,6 @@ def export_yolo_models() -> None:
             model = YOLO(model_path)
             if on_jetson:
                 logger.info("Compiling TensorRT Engine for %s ...", model_file)
-                # device="cpu" หลบ cuDNN bug บน Jetson 
-                # format="engine" สร้างไฟล์ .engine อัตโนมัติและแก้บั๊ก Cask ให้ในตัว
                 model.export(format="engine", device="cpu", half=True, dynamic=False, workspace=2)
                 logger.info("Engine compilation complete: %s", model_file.replace('.pt', '.engine'))
             else:

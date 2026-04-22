@@ -50,8 +50,22 @@ def main():
 
     time.sleep(2.0)
 
-    tracker_count = TrackerEngine(model_path='models/yolov8n.pt', config_path='configs/tracker_zone_config.json')
-    face_analyzer = FaceEngine(detector_path='models/yolov8n-face.pt', mivolo_path='models/mivolo_v2.onnx')
+    # --- Model Selection Based on OS ---
+
+    if on_jetson:
+        print("[System] OS: Jetson -> Loading TensorRT (.engine) models...")
+        TRACKER_MODEL = 'models/yolov8n.engine'
+        FACE_MODEL = 'models/yolov8n-face.engine'
+        MIVOLO_MODEL = 'models/mivolo_fp16.engine'
+    else:
+        print("[System] OS: Windows/PC -> Loading PyTorch/ONNX models...")
+        TRACKER_MODEL = 'models/yolov8n.pt'
+        FACE_MODEL = 'models/yolov8n-face.pt'
+        MIVOLO_MODEL = 'models/mivolo_v2.onnx'
+
+    # --- Setup Engines ---
+    tracker_count = TrackerEngine(model_path=TRACKER_MODEL, config_path='configs/tracker_zone_config.json')
+    face_analyzer = FaceEngine(detector_path=FACE_MODEL, mivolo_path=MIVOLO_MODEL)
     
     PROCESS_EVERY_N_FRAMES = 2 
     print(f"[Info] เริ่มประมวลผลกล้องสด... กด 'q' เพื่อหยุด")

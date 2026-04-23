@@ -1,9 +1,18 @@
+import os
+import torch
+
+try:
+    from ultralytics.nn.tasks import DetectionModel
+    torch.serialization.add_safe_globals([DetectionModel])
+except Exception:
+    pass
+os.environ['TORCH_WEIGHTS_ONLY_LOAD'] = '0'
+
 import logging
 import cv2
 import time
 import platform
 import csv
-import os
 from datetime import datetime
 
 from src.utils import is_jetson, get_platform_label, setup_logging, resolve_model_paths

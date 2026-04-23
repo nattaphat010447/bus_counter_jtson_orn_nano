@@ -18,9 +18,8 @@ echo "[Info] Setting up Jetson Orin Nano Environment..."
 echo "[Info] FORCE_REBUILD=${FORCE_REBUILD}  SKIP_DEPS=${SKIP_DEPS}"
 
 # ------------------------------------------------------------------
-# build_engine: รับ precision เป็น argument ที่ 4
-#   fp16  = --fp16 (เร็วกว่า แต่บาง model อาจ Cask error)
-#   best  = --best (TRT เลือก precision ต่อ layer — ปลอดภัยกว่า)
+# build_engine: ใช้เฉพาะ miVOLO
+# YOLO engines ถูก build โดย yolo_export.py ผ่าน Ultralytics แทน
 # ------------------------------------------------------------------
 build_engine() {
     local onnx_path="$1"
@@ -42,20 +41,16 @@ build_engine() {
 
     echo "[Info] Building TensorRT engine: ${label} (precision=${precision})..."
 
-    if [ "${precision}" = "best" ]; then
-        # ให้ TRT เลือก precision ที่เหมาะสมต่อ layer
-        # จำเป็นสำหรับ yolov11n-face ซึ่งมีบาง op ที่ไม่รองรับ FP16 เต็มทุก layer
-        # บน Jetson Orin Nano -> ป้องกัน "Cask convolution execution" error
+    if [ "${precision}" = "fp16" ]; then
         /usr/src/tensorrt/bin/trtexec \
             --onnx="${onnx_path}" \
             --saveEngine="${engine_path}" \
-            --best \
+            --fp16 \
             --memPoolSize=workspace:2048
     else
         /usr/src/tensorrt/bin/trtexec \
             --onnx="${onnx_path}" \
             --saveEngine="${engine_path}" \
-            --fp16 \
             --memPoolSize=workspace:2048
     fi
 }
@@ -87,34 +82,28 @@ echo "[Info] Checking and downloading missing models..."
 python3 tools/download_models.py
 
 # ------------------------------------------------------------------
-# 3. YOLO: .pt -> .onnx
+# 3. YOLO: .pt -> .onnx -> .engine 
+#   Phase 1 : PT -> ONNX บน CPU 
+#   Phase 2 : ONNX -> engine ผ่าน Ultralytics
 # ------------------------------------------------------------------
 NEED_YOLO_EXPORT=0
 for name in yolov8n yolov8n-face; do
-    if [ ! -f "models/${name}.onnx" ] || [ "${FORCE_REBUILD}" = "1" ]; then
+    if [ ! -f "models/${name}.engine" ] || [ "${FORCE_REBUILD}" = "1" ]; then
         NEED_YOLO_EXPORT=1
         break
     fi
 done
 
 if [ "${NEED_YOLO_EXPORT}" = "1" ]; then
-    echo "[Info] Exporting YOLO models to ONNX..."
-    python3 tools/yolo_export.py
+    echo "[Info] Exporting YOLO models (ONNX + TRT engine via Ultralytics)..."
+    FORCE_REBUILD="${FORCE_REBUILD}" python3 tools/yolo_export.py
 else
-    echo "[Skip] All YOLO .onnx files already exist."
+    echo "[Skip] All YOLO .engine files already exist."
 fi
 
 # ------------------------------------------------------------------
-# 4. YOLO: .onnx -> .engine
-#    yolov8n + yolov8n-face -> fp16
-# ------------------------------------------------------------------
-set +e
-build_engine "models/yolov8n.onnx"       "models/yolov8n.engine"       "yolov8n"        "fp16"
-build_engine "models/yolov8n-face.onnx"  "models/yolov8n-face.engine"  "yolov8n-face"   "fp16"
-set -e
-
-# ------------------------------------------------------------------
-# 5. miVOLO: .pt -> .onnx
+# 4. miVOLO: .pt -> .onnx
+#    (ใช้ trt_infer.py ซึ่งใช้ TRT10 API ตรง → trtexec compatible)
 # ------------------------------------------------------------------
 if [ -f "models/mivolo_v2.onnx" ] && [ "${FORCE_REBUILD}" != "1" ]; then
     echo "[Skip] models/mivolo_v2.onnx already exists."
@@ -124,7 +113,8 @@ else
 fi
 
 # ------------------------------------------------------------------
-# 6. miVOLO: simplify ONNX + build TensorRT engine
+# 5. miVOLO: simplify ONNX + build TRT engine ด้วย trtexec
+#    (OK เพราะ trt_infer.py ใช้ TRT10 API เหมือนกัน → ไม่มี API mismatch)
 # ------------------------------------------------------------------
 if [ -f "models/mivolo_v2.onnx" ]; then
     if [ "${FORCE_REBUILD}" != "1" ] \

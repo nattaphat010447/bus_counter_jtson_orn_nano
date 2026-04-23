@@ -53,43 +53,29 @@ class FaceEngine:
     def _predict_age_gender(self, face_img: np.ndarray) -> tuple[int, str]:
         blob = self._prepare_blob(face_img)
         try:
-            # 1. ประมวลผลจาก Backend
             if self.is_trt:
                 outputs = self.mivolo_model.infer(blob, blob)
             else:
                 input_feed = {self.input_names[0]: blob, self.input_names[1]: blob}
                 outputs = self.mivolo_model.run(None, input_feed)
                 
-            gender_scores = None
-            age = None
-            
-            # 2. ค้นหาข้อมูลตามขนาด
-            for out in outputs:
-                if out.size == 2:
-                    gender_scores = out.flatten()
-                elif out.size == 1:
-                    age = float(out.flatten()[0])
-            
-            # 3. เผื่อกรณี TensorRT ยุบรวมทุกอย่างเป็น Array เดียว (Size 3)
-            if (gender_scores is None or age is None) and len(outputs) > 0:
-                flat_out = np.concatenate([out.flatten() for out in outputs])
+            if not outputs:
+                return 0, "Unknown"
                 
-                # ---> แอบดูค่าที่ AI ส่งออกมา <---
-                logger.info(f"DEBUG MIVOLO RAW DATA: {flat_out}")
-                
-                if flat_out.size >= 3:
-                    gender_scores = flat_out[:2]
-                    age = float(flat_out[2])
+            flat_out = np.concatenate([np.array(out).flatten() for out in outputs])
+            
+            if flat_out.size >= 3:
+                female_score = flat_out[0]
+                male_score   = flat_out[1]
+                age_norm     = flat_out[2]
+            else:
+                return 0, "Unknown"
 
-            # 4. Fallback ป้องกันการแครช
-            if gender_scores is None or len(gender_scores) < 2:
-                gender_scores = np.array([0.0, 0.0])
-            if age is None:
-                age = 0.0
+            # 3. คำนวณอายุ (คูณ 100 เพื่อแปลงกลับเป็นอายุจริง) และสรุปเพศ
+            age = float(age_norm) * 100.0
+            gender = "Male" if male_score > female_score else "Female"
 
-            # 5. สรุปผล
-            gender = "Male" if gender_scores[0] > gender_scores[1] else "Female"
-            return int(age), gender
+            return max(0, int(age)), gender
 
         except Exception:
             logger.exception("Inference failed")

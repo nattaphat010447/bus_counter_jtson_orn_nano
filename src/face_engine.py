@@ -80,7 +80,17 @@ class FaceEngine:
             if age is None:
                 age = 0.0
 
-            # 4. Index 0 = Male, Index 1 = Female
+            # ==========================================
+            # ASIAN AGE CALIBRATION
+            # ==========================================
+            raw_age = float(age)
+            if raw_age >= 15.0 and raw_age < 55.0:
+                # วัยรุ่นถึงผู้ใหญ่บวกเพิ่มประมาณ 6
+                age = raw_age + 6.0 
+            elif raw_age >= 55.0:
+                age = raw_age + 4.0
+
+            # 5. สรุปผล
             gender = "Male" if gender_scores[0] > gender_scores[1] else "Female"
             return int(age), gender
 

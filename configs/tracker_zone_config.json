@@ -1,5 +1,4 @@
 {
-    "DETECTION_ZONE_ENABLED": true,
     "DETECTION_ZONE": {
         "x1": 0.09,
         "y1": 0.0,
@@ -9,10 +8,5 @@
     "LINE_1_Y": 0.28,
     "LINE_2_Y": 0.61,
     "YOLO_CONFIDENCE": 0.25,
-    "YOLO_IOU": 0.70,
-    "ENABLE_MIVOLO": true,
-    "FACE_CONFIDENCE_THRESHOLD": 0.5,
-    "MIVOLO_PROCESS_EVERY_N_FRAMES": 3,
-    "BEST_FRAMES_N_BEST": 5,
-    "BEST_FRAMES_SCORE_THRESHOLD": 0.6
+    "YOLO_IOU": 0.70
 }

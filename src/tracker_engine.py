@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class TrackerEngine:
     def __init__(self, model_path: str, config_path: str):
-        self.model = YOLO(model_path)
+        self.model = YOLO(model_path, task="detect")
 
         with open(config_path, 'r') as f:
             self.config = json.load(f)

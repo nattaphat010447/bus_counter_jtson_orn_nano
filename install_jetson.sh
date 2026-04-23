@@ -18,19 +18,21 @@ echo "[Info] Setting up Jetson Orin Nano Environment..."
 echo "[Info] FORCE_REBUILD=${FORCE_REBUILD}  SKIP_DEPS=${SKIP_DEPS}"
 
 # ------------------------------------------------------------------
-# build .engine เฉพาะถ้ายังไม่มีหรือ .ONNX ใหม่กว่า .engine
+# build_engine: รับ precision เป็น argument ที่ 4
+#   fp16  = --fp16 (เร็วกว่า แต่บาง model อาจ Cask error)
+#   best  = --best (TRT เลือก precision ต่อ layer — ปลอดภัยกว่า)
 # ------------------------------------------------------------------
 build_engine() {
     local onnx_path="$1"
     local engine_path="$2"
     local label="$3"
+    local precision="${4:-fp16}"
 
     if [ ! -f "${onnx_path}" ]; then
         echo "[Warn] ${onnx_path} not found — skipping ${label}."
         return 0
     fi
 
-    # Skip ถ้ามี engine อยู่แล้ว, ใหม่กว่า onnx, และไม่บังคับ rebuild
     if [ "${FORCE_REBUILD}" != "1" ] \
        && [ -f "${engine_path}" ] \
        && [ "${engine_path}" -nt "${onnx_path}" ]; then
@@ -38,12 +40,24 @@ build_engine() {
         return 0
     fi
 
-    echo "[Info] Building TensorRT engine: ${label} (FP16)..."
-    /usr/src/tensorrt/bin/trtexec \
-        --onnx="${onnx_path}" \
-        --saveEngine="${engine_path}" \
-        --fp16 \
-        --memPoolSize=workspace:2048
+    echo "[Info] Building TensorRT engine: ${label} (precision=${precision})..."
+
+    if [ "${precision}" = "best" ]; then
+        # ให้ TRT เลือก precision ที่เหมาะสมต่อ layer
+        # จำเป็นสำหรับ yolov11n-face ซึ่งมีบาง op ที่ไม่รองรับ FP16 เต็มทุก layer
+        # บน Jetson Orin Nano → ป้องกัน "Cask convolution execution" error
+        /usr/src/tensorrt/bin/trtexec \
+            --onnx="${onnx_path}" \
+            --saveEngine="${engine_path}" \
+            --best \
+            --memPoolSize=workspace:2048
+    else
+        /usr/src/tensorrt/bin/trtexec \
+            --onnx="${onnx_path}" \
+            --saveEngine="${engine_path}" \
+            --fp16 \
+            --memPoolSize=workspace:2048
+    fi
 }
 
 # ------------------------------------------------------------------
@@ -92,11 +106,12 @@ fi
 
 # ------------------------------------------------------------------
 # 4. YOLO: .onnx -> .engine
+#    yolov8n      → fp16  (ทำงานได้ปกติ)
+#    yolov11n-face → best (ป้องกัน Cask convolution error บน Orin Nano)
 # ------------------------------------------------------------------
-set +e  # ยอมให้ build ตัวเดียวล้มเหลวได้ ไม่หยุดทั้ง script
-for name in yolov8n yolov11n-face; do
-    build_engine "models/${name}.onnx" "models/${name}.engine" "${name}"
-done
+set +e
+build_engine "models/yolov8n.onnx"       "models/yolov8n.engine"       "yolov8n"        "fp16"
+build_engine "models/yolov11n-face.onnx" "models/yolov11n-face.engine" "yolov11n-face"  "best"
 set -e
 
 # ------------------------------------------------------------------
@@ -113,7 +128,6 @@ fi
 # 6. miVOLO: simplify ONNX + build TensorRT engine
 # ------------------------------------------------------------------
 if [ -f "models/mivolo_v2.onnx" ]; then
-    # Simplify (skip ถ้า _sim.onnx ใหม่กว่า .onnx)
     if [ "${FORCE_REBUILD}" != "1" ] \
        && [ -f "models/mivolo_v2_sim.onnx" ] \
        && [ "models/mivolo_v2_sim.onnx" -nt "models/mivolo_v2.onnx" ]; then
@@ -125,7 +139,7 @@ if [ -f "models/mivolo_v2.onnx" ]; then
     fi
 
     set +e
-    build_engine "models/mivolo_v2_sim.onnx" "models/mivolo_fp16.engine" "mivolo_fp16 (10-20 mins)"
+    build_engine "models/mivolo_v2_sim.onnx" "models/mivolo_fp16.engine" "mivolo_fp16 (10-20 mins)" "fp16"
     set -e
 else
     echo "[Error] models/mivolo_v2.onnx not found! Skipping TensorRT compilation."

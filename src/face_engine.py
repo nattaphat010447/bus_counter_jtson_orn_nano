@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class FaceEngine:
     def __init__(self, detector_path: str, mivolo_path: str):
-        self.detector = YOLO(detector_path)
+        self.detector = YOLO(detector_path, task="detect")
 
         self.is_trt = mivolo_path.endswith('.engine')
 

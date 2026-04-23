@@ -53,51 +53,39 @@ class FaceEngine:
     def _predict_age_gender(self, face_img: np.ndarray) -> tuple[int, str]:
         blob = self._prepare_blob(face_img)
         try:
-            # 1. ประมวลผลจาก Backend
+            # 1. ประมวลผล
             if self.is_trt:
                 outputs = self.mivolo_model.infer(blob, blob)
             else:
                 input_feed = {self.input_names[0]: blob, self.input_names[1]: blob}
                 outputs = self.mivolo_model.run(None, input_feed)
                 
-            # =========================================================
-            # [DEBUG] ปริ้นค่าดิบที่ได้จากโมเดล เพื่อดูโครงสร้างที่แท้จริง
-            # =========================================================
-            print(f"\n[DEBUG] Detected {len(outputs)} output array(s):")
-            for i, out in enumerate(outputs):
-                print(f"  - Array {i}: Shape={out.shape} | Values={out.flatten()}")
-            # =========================================================
-
             gender_scores = None
             age = None
             
-            # 2. ค้นหาข้อมูลตามขนาด (Size 2 = เพศ, Size 1 = อายุ)
-            for out in outputs:
-                if out.size == 2:
-                    gender_scores = out.flatten()
-                elif out.size == 1:
-                    age = float(out.flatten()[0])
-            
-            # 3. เผื่อกรณี TensorRT ยุบรวมทุกอย่างเป็น Array เดียว (Size 3)
-            if (gender_scores is None or age is None) and len(outputs) > 0:
-                flat_out = np.concatenate([out.flatten() for out in outputs])
-                if flat_out.size >= 3:
-                    gender_scores = flat_out[:2]
-                    age = float(flat_out[2])
+            # 2. ดึงข้อมูล
+            if len(outputs) == 6:
+                age = float(outputs[1].flatten()[0])
+                gender_scores = outputs[5].flatten()
+            else:
+                for out in outputs:
+                    if out.size == 2:
+                        gender_scores = out.flatten()
+                    elif out.size == 1 and 1.0 < float(out.flatten()[0]) < 100.0:
+                        age = float(out.flatten()[0])
 
-            # 4. Fallback ป้องกันการแครชในทุกกรณี
+            # 3. Fallback
             if gender_scores is None or len(gender_scores) < 2:
                 gender_scores = np.array([0.0, 0.0])
             if age is None:
                 age = 0.0
 
-            # 5. สรุปผล
+            # 4. Index 0 = Male, Index 1 = Female
             gender = "Male" if gender_scores[0] > gender_scores[1] else "Female"
             return int(age), gender
 
         except Exception as e:
-            # เปลี่ยนจาก logger เป็น print ชั่วคราว จะได้เห็น Error ชัดๆ
-            print(f"Inference failed: {e}") 
+            logger.exception("Inference failed")
             return 0, "Unknown"
 
     def process_frame(self, frame: np.ndarray) -> tuple[np.ndarray, list]:

@@ -24,6 +24,19 @@ pip3 install -U --no-cache-dir ultralytics
 echo "[Info] Checking and downloading missing models..."
 python3 tools/download_models.py
 
+for name in yolov8n yolov11n-face; do
+    if [ -f "models/${name}.onnx" ]; then
+        echo "[Info] Building TensorRT engine for ${name} (FP16)..."
+        /usr/src/tensorrt/bin/trtexec \
+            --onnx=models/${name}.onnx \
+            --saveEngine=models/${name}.engine \
+            --fp16 \
+            --memPoolSize=workspace:2048
+    else
+        echo "[Error] models/${name}.onnx not found! Skipping."
+    fi
+done
+
 # 2. YOLO Conversion (Automated via Ultralytics to prevent Cask/cuDNN bugs)
 echo "[Info] Processing YOLO models..."
 python3 tools/yolo_export.py

@@ -1,3 +1,8 @@
+
+import torch
+
+torch.backends.cudnn.enabled = False
+
 import logging
 import cv2
 import numpy as np

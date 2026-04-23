@@ -53,6 +53,7 @@ class FaceEngine:
     def _predict_age_gender(self, face_img: np.ndarray) -> tuple[int, str]:
         blob = self._prepare_blob(face_img)
         try:
+            # 1. ประมวลผลจาก Backend
             if self.is_trt:
                 outputs = self.mivolo_model.infer(blob, blob)
             else:
@@ -62,23 +63,31 @@ class FaceEngine:
             gender_scores = None
             age = None
             
+            # 2. ค้นหาข้อมูลตามขนาด
             for out in outputs:
                 if out.size == 2:
                     gender_scores = out.flatten()
                 elif out.size == 1:
                     age = float(out.flatten()[0])
             
+            # 3. เผื่อกรณี TensorRT ยุบรวมทุกอย่างเป็น Array เดียว (Size 3)
             if (gender_scores is None or age is None) and len(outputs) > 0:
                 flat_out = np.concatenate([out.flatten() for out in outputs])
+                
+                # ---> แอบดูค่าที่ AI ส่งออกมา <---
+                logger.info(f"DEBUG MIVOLO RAW DATA: {flat_out}")
+                
                 if flat_out.size >= 3:
                     gender_scores = flat_out[:2]
                     age = float(flat_out[2])
 
+            # 4. Fallback ป้องกันการแครช
             if gender_scores is None or len(gender_scores) < 2:
                 gender_scores = np.array([0.0, 0.0])
             if age is None:
                 age = 0.0
 
+            # 5. สรุปผล
             gender = "Male" if gender_scores[0] > gender_scores[1] else "Female"
             return int(age), gender
 

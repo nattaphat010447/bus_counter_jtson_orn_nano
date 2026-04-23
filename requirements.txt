@@ -1,3 +1,7 @@
+# ============================================================
+# Windows Development Environment
+# ใช้: pip install -r requirements.txt
+# ============================================================
 opencv-python
 ultralytics>=8.1.0
 numpy>=1.24.0,<2.0.0
@@ -5,8 +9,8 @@ lapx>=0.5.1
 onnx
 onnxscript
 onnxsim
-# mediapipe>=0.10.0
+transformers
 torch>=2.0.0
 torchvision
+# ONNX Runtime
 onnxruntime-gpu
-transformers

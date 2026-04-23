@@ -17,22 +17,22 @@ pip install -U pip
 pip install -r requirements.txt
 pip install transformers
 
-REM Check and download missing models
-echo [Info] Checking and downloading missing models...
-python tools/download_models.py
+REM Install MiVOLO explicitly without build isolation
+echo [Info] Installing MiVOLO...
+pip install --upgrade wrapt 
+pip install --no-build-isolation git+https://github.com/WildChlamydia/MiVOLO.git
 
 REM Update ultralytics
 echo Updating ultralytics...
 pip install -U ultralytics
 
+REM Check and download missing models
+echo [Info] Checking and downloading missing models...
+python tools/download_models.py
+
 REM Export YOLO to ONNX
 echo [Info] Exporting YOLO models...
 python tools/yolo_export.py
-
-REM Install MiVOLO explicitly without build isolation
-echo [Info] Installing MiVOLO...
-pip install --upgrade wrapt 
-pip install --no-build-isolation git+https://github.com/WildChlamydia/MiVOLO.git
 
 REM miVOLO Conversion
 echo [Info] Processing miVOLO model...

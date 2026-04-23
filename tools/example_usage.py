@@ -57,13 +57,113 @@ def select_file(files: list):
         except ValueError:
             print("Integer required.")
 
+
+def _is_capture_device(path: str) -> bool:
+    """
+    Check ว่า /dev/videoX เป็น capture node จริง (ไม่ใช่ metadata)
+    ใช้ v4l2-ctl ถ้ามี มิฉะนั้น fallback = เปิดแล้วลอง read frame
+    """
+    try:
+        import subprocess
+        out = subprocess.run(
+            ['v4l2-ctl', '--device', path, '--all'],
+            capture_output=True, text=True, timeout=2
+        )
+        # capture node จะมี "Video Capture" ใน capabilities
+        return 'Video Capture' in out.stdout and 'Metadata Capture' not in out.stdout
+    except Exception:
+        # Fallback: ลองเปิดแล้ว grab 1 frame
+        cap = cv2.VideoCapture(path, cv2.CAP_V4L2)
+        ok = cap.isOpened()
+        if ok:
+            ret, _ = cap.read()
+            ok = ret
+        cap.release()
+        return ok
+
+
+def discover_cameras() -> list:
+    """
+    คืน list of (label, path) ของกล้องที่ใช้งานได้จริง
+    Priority: symlinks (top-right, etc.) ก่อน, แล้วค่อย /dev/videoX
+    """
+    cameras = []
+
+    # 1. Preferred: udev symlinks (เสถียรข้าม reboot)
+    for name in ['top-right', 'top-left', 'bottom-right', 'bottom-left']:
+        path = f'/dev/{name}'
+        if os.path.exists(path):
+            cameras.append((name, path))
+
+    # 2. Fallback: /dev/video* ที่เป็น capture node (ไม่นับ metadata)
+    if not cameras:
+        for path in sorted(glob.glob('/dev/video*')):
+            if _is_capture_device(path):
+                cameras.append((os.path.basename(path), path))
+
+    return cameras
+
+
+def select_camera():
+    cameras = discover_cameras()
+
+    if not cameras:
+        logger.error(
+            "No cameras detected. "
+            "Check USB connection, or run: sudo bash jetson_camera_setup.sh"
+        )
+        return None
+
+    if len(cameras) == 1:
+        label, path = cameras[0]
+        logger.info("Using only available camera: %s (%s)", label, path)
+        return path
+
+    print("\n--- Available Cameras ---")
+    for i, (label, path) in enumerate(cameras):
+        print(f"[{i+1}] {label}  ({path})")
+    print("[0] Cancel")
+
+    while True:
+        try:
+            choice = int(input("\nSelect camera: "))
+            if choice == 0:
+                return None
+            if 1 <= choice <= len(cameras):
+                return cameras[choice - 1][1]
+            print("Invalid input.")
+        except ValueError:
+            print("Integer required.")
+
+
+def open_capture(source):
+    """
+    สร้าง VideoCapture แบบเหมาะกับทั้ง file path, device path, และ int index
+    บน Jetson ใช้ CAP_V4L2 backend ชัดเจน (หลีกเลี่ยง obsensor/other fallback)
+    """
+    if isinstance(source, str) and source.startswith('/dev/'):
+        cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
+        # ตั้งค่าเริ่มต้น - ปรับได้ตามกล้อง
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+    else:
+        cap = cv2.VideoCapture(source)
+    return cap
+
+
 # ---------------------------------------------------------------------------
 # Test runners
 # ---------------------------------------------------------------------------
 
 def run_tracker(source) -> None:
     tracker = TrackerEngine(model_path=TRACKER_MODEL, config_path='configs/tracker_zone_config.json')
-    cap = cv2.VideoCapture(source)
+    cap = open_capture(source)
+
+    if not cap.isOpened():
+        logger.error("Cannot open source: %s", source)
+        return
+
     logger.info("Tracker started — source: %s  (press 'q' to quit)", source)
 
     while cap.isOpened():
@@ -84,6 +184,7 @@ def run_tracker(source) -> None:
     cap.release()
     cv2.destroyAllWindows()
 
+
 def run_mivolo(source, is_image: bool = False) -> None:
     face_analyzer = FaceEngine(detector_path=FACE_MODEL, mivolo_path=MIVOLO_MODEL)
     logger.info("miVOLO started — source: %s  (press 'q' to quit)", source)
@@ -93,7 +194,6 @@ def run_mivolo(source, is_image: bool = False) -> None:
         if frame is None:
             logger.error("Cannot read image: %s", source)
             return
-        # ให้โมเดล warm-up ก่อน 5 รอบ เพื่อให้ smoothing buffer เต็ม
         for _ in range(5):
             annotated_frame, _ = face_analyzer.process_frame(frame)
         cv2.imshow("miVOLO Image", annotated_frame)
@@ -101,16 +201,19 @@ def run_mivolo(source, is_image: bool = False) -> None:
         cv2.destroyAllWindows()
         return
 
-    cap = cv2.VideoCapture(source)
-    frame_count = 0
+    cap = open_capture(source)
+    if not cap.isOpened():
+        logger.error("Cannot open source: %s", source)
+        return
 
+    frame_count = 0
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
         frame_count += 1
-        if frame_count % 2 != 0: 
+        if frame_count % 2 != 0:
             continue
 
         start_time = time.time()
@@ -125,6 +228,7 @@ def run_mivolo(source, is_image: bool = False) -> None:
 
     cap.release()
     cv2.destroyAllWindows()
+
 
 # ---------------------------------------------------------------------------
 # Menu
@@ -149,17 +253,22 @@ def main():
             if selected:
                 run_tracker(selected)
         elif choice == '2':
-            run_tracker(0)
+            cam = select_camera()
+            if cam:
+                run_tracker(cam)
         elif choice == '3':
             selected = select_file(get_media_files(['.mp4', '.avi', '.png', '.jpg']))
             if selected:
                 run_mivolo(selected, is_image=selected.lower().endswith(('.png', '.jpg')))
         elif choice == '4':
-            run_mivolo(0)
+            cam = select_camera()
+            if cam:
+                run_mivolo(cam)
         elif choice == '0':
             break
         else:
             print("Invalid selection.")
+
 
 if __name__ == "__main__":
     main()

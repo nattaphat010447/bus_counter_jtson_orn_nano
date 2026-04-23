@@ -98,7 +98,7 @@ def export_to_engine(onnx_paths: list[str]) -> None:
             YOLO(onnx_path).export(
                 format="engine",
                 device=0,
-                half=True,
+                half=False,
                 workspace=2,
                 simplify=True,
             )

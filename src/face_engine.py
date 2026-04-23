@@ -50,13 +50,31 @@ class FaceEngine:
         try:
             if self.is_trt:
                 outputs = self.mivolo_model.infer(blob, blob)
-                gender_scores = outputs[0].reshape(1, 2)[0]
-                age = float(outputs[1][0])
+                
+                # --- [FIX] รองรับ Output ที่ถูกยุบรวมเป็นก้อนเดียว (Size 3) ---
+                if len(outputs) == 1 and outputs[0].size == 3:
+                    flat_out = outputs[0].flatten()
+                    gender_scores = flat_out[:2]
+                    age = float(flat_out[2])
+                else:
+                    # กรณี Output แยกเป็น 2 ก้อน
+                    if outputs[0].size == 2:
+                        gender_scores = outputs[0].flatten()
+                        age = float(outputs[1].flatten()[0])
+                    else:
+                        gender_scores = outputs[1].flatten()
+                        age = float(outputs[0].flatten()[0])
             else:
                 input_feed = {self.input_names[0]: blob, self.input_names[1]: blob}
                 outputs = self.mivolo_model.run(None, input_feed)
-                gender_scores = outputs[0][0]
-                age = float(outputs[1][0][0])
+                
+                if len(outputs) == 1 and outputs[0].size == 3:
+                    flat_out = outputs[0].flatten()
+                    gender_scores = flat_out[:2]
+                    age = float(flat_out[2])
+                else:
+                    gender_scores = outputs[0][0]
+                    age = float(outputs[1][0][0])
 
             gender = "Male" if gender_scores[0] > gender_scores[1] else "Female"
             return int(age), gender

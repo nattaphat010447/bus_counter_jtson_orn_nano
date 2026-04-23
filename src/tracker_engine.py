@@ -1,3 +1,5 @@
+import torch
+torch.backends.cudnn.enabled = False
 import logging
 import cv2
 import numpy as np
@@ -55,6 +57,17 @@ class TrackerEngine:
 
         boxes     = results[0].boxes.xyxy.cpu().numpy()
         track_ids = results[0].boxes.id.int().cpu().numpy()
+
+        valid_mask = np.all(np.isfinite(boxes), axis=1)
+        if not np.any(valid_mask):
+            # All detections are garbage — treat frame as empty
+            logger.warning("All bounding boxes are NaN/Inf — TRT engine may be "
+                           "mismatched. Rebuild with: yolo export model=yolov8n.pt "
+                           "format=engine device=0 half=True")
+            self._draw_counts(annotated_frame)
+            return annotated_frame, {"in": self.count_in, "out": self.count_out}
+        boxes     = boxes[valid_mask]
+        track_ids = track_ids[valid_mask]
 
         # Prune stale IDs
         active_ids = set(track_ids.tolist())

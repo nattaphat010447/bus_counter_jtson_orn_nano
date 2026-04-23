@@ -52,8 +52,8 @@ MODEL_NAMES = {
 
 def resolve_model_paths(on_jetson: bool) -> dict:
     """คืน dict ของ model path จริงตาม platform"""
-    ext_tracker = '.engine' if on_jetson else '.pt'
-    ext_face    = '.pt'  
+    ext_tracker = '.pt'
+    ext_face    = '.pt'
     
     mivolo_stem = 'mivolo_fp16' if on_jetson else MODEL_NAMES['mivolo']
     mivolo_ext  = '.engine'     if on_jetson else '.onnx'

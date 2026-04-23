@@ -7,6 +7,7 @@ import os
 import cv2
 import time
 import glob
+import platform
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -25,6 +26,8 @@ MIVOLO_MODEL  = _models['mivolo']
 
 logger.info("Platform: %s | tracker=%s | face=%s | mivolo=%s",
             'Jetson' if is_jetson() else 'PC', TRACKER_MODEL, FACE_MODEL, MIVOLO_MODEL)
+
+_IS_WINDOWS = platform.system().lower() == 'windows'
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,10 +72,8 @@ def _is_capture_device(path: str) -> bool:
             ['v4l2-ctl', '--device', path, '--all'],
             capture_output=True, text=True, timeout=2
         )
-        # capture node จะมี "Video Capture" ใน capabilities
         return 'Video Capture' in out.stdout and 'Metadata Capture' not in out.stdout
     except Exception:
-        # Fallback: ลองเปิดแล้ว grab 1 frame
         cap = cv2.VideoCapture(path, cv2.CAP_V4L2)
         ok = cap.isOpened()
         if ok:
@@ -82,11 +83,37 @@ def _is_capture_device(path: str) -> bool:
         return ok
 
 
+def _discover_windows_cameras(max_index: int = 5) -> list:
+    """
+    Probe integer indices 0..max_index-1 with DirectShow backend.
+    Returns list of (label, index) for every index that opens AND
+    delivers at least one frame.
+    """
+    cameras = []
+    for idx in range(max_index):
+        cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            ret, _ = cap.read()
+            cap.release()
+            if ret:
+                cameras.append((f"Camera {idx}", idx))
+        else:
+            cap.release()
+    return cameras
+
+
 def discover_cameras() -> list:
     """
-    คืน list of (label, path) ของกล้องที่ใช้งานได้จริง
-    Priority: symlinks (top-right, etc.) ก่อน, แล้วค่อย /dev/videoX
+    คืน list of (label, source) ของกล้องที่ใช้งานได้จริง
+
+    Windows  → probe integer indices via DirectShow
+    Linux    → udev symlinks (/dev/top-right …) แล้ว fallback /dev/video*
     """
+    # ─── Windows ───────────────────────────────────────────────────────────
+    if _IS_WINDOWS:
+        return _discover_windows_cameras()
+
+    # ─── Linux / Jetson ────────────────────────────────────────────────────
     cameras = []
 
     # 1. Preferred: udev symlinks (เสถียรข้าม reboot)
@@ -110,18 +137,21 @@ def select_camera():
     if not cameras:
         logger.error(
             "No cameras detected. "
+            "%s",
+            "Check Device Manager / privacy settings (Settings → Privacy → Camera)."
+            if _IS_WINDOWS else
             "Check USB connection, or run: sudo bash jetson_camera_setup.sh"
         )
         return None
 
     if len(cameras) == 1:
-        label, path = cameras[0]
-        logger.info("Using only available camera: %s (%s)", label, path)
-        return path
+        label, source = cameras[0]
+        logger.info("Using only available camera: %s (%s)", label, source)
+        return source
 
     print("\n--- Available Cameras ---")
-    for i, (label, path) in enumerate(cameras):
-        print(f"[{i+1}] {label}  ({path})")
+    for i, (label, source) in enumerate(cameras):
+        print(f"[{i+1}] {label}  ({source})")
     print("[0] Cancel")
 
     while True:
@@ -139,15 +169,21 @@ def select_camera():
 def open_capture(source):
     """
     สร้าง VideoCapture แบบเหมาะกับทั้ง file path, device path, และ int index
-    บน Jetson ใช้ CAP_V4L2 backend ชัดเจน (หลีกเลี่ยง obsensor/other fallback)
+    - Windows : ใช้ CAP_DSHOW (เสถียรกว่า MSMF สำหรับ USB webcam)
+    - Jetson  : ใช้ CAP_V4L2 ชัดเจน
+    - File    : ใช้ default backend
     """
-    if isinstance(source, str) and source.startswith('/dev/'):
+    if isinstance(source, int):
+        # Windows integer index
+        cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
+    elif isinstance(source, str) and source.startswith('/dev/'):
+        # Linux device node
         cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
-        # ตั้งค่าเริ่มต้น - ปรับได้ตามกล้อง
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         cap.set(cv2.CAP_PROP_FPS, 30)
     else:
+        # Video file
         cap = cv2.VideoCapture(source)
     return cap
 
@@ -254,7 +290,7 @@ def main():
                 run_tracker(selected)
         elif choice == '2':
             cam = select_camera()
-            if cam:
+            if cam is not None:
                 run_tracker(cam)
         elif choice == '3':
             selected = select_file(get_media_files(['.mp4', '.avi', '.png', '.jpg']))
@@ -262,7 +298,7 @@ def main():
                 run_mivolo(selected, is_image=selected.lower().endswith(('.png', '.jpg')))
         elif choice == '4':
             cam = select_camera()
-            if cam:
+            if cam is not None:
                 run_mivolo(cam)
         elif choice == '0':
             break

@@ -10,6 +10,13 @@ import functools
 import torch
 
 # --- PyTorch >=2.6 weights_only=True default breaks Ultralytics .pt loading ---
+try:
+    from ultralytics.nn.tasks import DetectionModel
+    torch.serialization.add_safe_globals([DetectionModel])
+except Exception:
+    pass
+os.environ['TORCH_WEIGHTS_ONLY_LOAD'] = '0'
+
 _orig_torch_load = torch.load
 
 @functools.wraps(_orig_torch_load)
@@ -22,7 +29,7 @@ torch.load = _patched_torch_load
 from ultralytics import YOLO
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.utils import MODEL_NAMES, setup_logging
+from src.utils import MODEL_NAMES, setup_logging, is_jetson
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -35,7 +42,6 @@ TARGET_MODELS = [
     f"{MODEL_NAMES['tracker']}.pt",
     f"{MODEL_NAMES['face']}.pt",
 ]
-
 
 def export_to_onnx() -> list[str]:
     """
@@ -72,14 +78,9 @@ def export_to_onnx() -> list[str]:
 
     return exported
 
-
 def export_to_engine(onnx_paths: list[str]) -> None:
     """
     Phase 2: .onnx -> .engine via Ultralytics (ไม่ใช่ trtexec)
-
-    โหลดจาก ONNX โดยตรง → ไม่มี PyTorch forward pass → ไม่มี cuDNN bug
-    Ultralytics เลือก TRT tactics ชุดเดียวกับที่ใช้ตอน inference
-    → executeV2 compatible → ไม่มี Cask mismatch
     """
     for onnx_path in onnx_paths:
         engine_path = onnx_path.replace('.onnx', '.engine')
@@ -94,7 +95,6 @@ def export_to_engine(onnx_paths: list[str]) -> None:
 
         try:
             logger.info("[Phase2] Building TRT engine via Ultralytics: %s", onnx_path)
-            # YOLO("model.onnx") = โหลด ONNX โดยตรง ไม่ผ่าน PyTorch
             YOLO(onnx_path).export(
                 format="engine",
                 device=0,
@@ -106,11 +106,13 @@ def export_to_engine(onnx_paths: list[str]) -> None:
         except Exception:
             logger.exception("[Phase2] Failed to build engine: %s", onnx_path)
 
-
 def export_yolo_models() -> None:
+    if is_jetson():
+        logger.info("[Bypass] Jetson detected: Skipping YOLO export.")
+        return
+
     onnx_paths = export_to_onnx()
     export_to_engine(onnx_paths)
-
 
 if __name__ == "__main__":
     export_yolo_models()

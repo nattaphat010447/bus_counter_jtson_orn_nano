@@ -41,12 +41,12 @@ def get_platform_label() -> str:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Model registry — แก้ชื่อที่นี่ที่เดียว ทุกไฟล์จะตาม
+# Model registry
 # ---------------------------------------------------------------------------
 
 MODEL_NAMES = {
     "tracker": "yolov8n",
-    "face":    "yolov11n-face",
+    "face":    "yolov8n-face",
     "mivolo":  "mivolo_v2",
 }
 
@@ -71,8 +71,8 @@ _DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 def setup_logging(
     log_dir: str = 'logs',
     level: int = logging.INFO,
-    max_bytes: int = 5 * 1024 * 1024,   # 5 MB per file
-    backup_count: int = 5,               # เก็บ 5 ไฟล์ย้อนหลัง
+    max_bytes: int = 5 * 1024 * 1024,
+    backup_count: int = 5,
 ) -> None:
     """
     ตั้งค่า root logger ครั้งเดียวใน main.py

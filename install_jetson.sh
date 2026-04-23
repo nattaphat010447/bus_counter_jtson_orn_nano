@@ -45,7 +45,7 @@ build_engine() {
     if [ "${precision}" = "best" ]; then
         # ให้ TRT เลือก precision ที่เหมาะสมต่อ layer
         # จำเป็นสำหรับ yolov11n-face ซึ่งมีบาง op ที่ไม่รองรับ FP16 เต็มทุก layer
-        # บน Jetson Orin Nano → ป้องกัน "Cask convolution execution" error
+        # บน Jetson Orin Nano -> ป้องกัน "Cask convolution execution" error
         /usr/src/tensorrt/bin/trtexec \
             --onnx="${onnx_path}" \
             --saveEngine="${engine_path}" \
@@ -90,7 +90,7 @@ python3 tools/download_models.py
 # 3. YOLO: .pt -> .onnx
 # ------------------------------------------------------------------
 NEED_YOLO_EXPORT=0
-for name in yolov8n yolov11n-face; do
+for name in yolov8n yolov8n-face; do
     if [ ! -f "models/${name}.onnx" ] || [ "${FORCE_REBUILD}" = "1" ]; then
         NEED_YOLO_EXPORT=1
         break
@@ -106,12 +106,11 @@ fi
 
 # ------------------------------------------------------------------
 # 4. YOLO: .onnx -> .engine
-#    yolov8n      → fp16  (ทำงานได้ปกติ)
-#    yolov11n-face → best (ป้องกัน Cask convolution error บน Orin Nano)
+#    yolov8n + yolov8n-face -> fp16
 # ------------------------------------------------------------------
 set +e
 build_engine "models/yolov8n.onnx"       "models/yolov8n.engine"       "yolov8n"        "fp16"
-build_engine "models/yolov11n-face.onnx" "models/yolov11n-face.engine" "yolov11n-face"  "best"
+build_engine "models/yolov8n-face.onnx"  "models/yolov8n-face.engine"  "yolov8n-face"   "fp16"
 set -e
 
 # ------------------------------------------------------------------

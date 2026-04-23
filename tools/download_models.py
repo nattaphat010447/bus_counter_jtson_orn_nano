@@ -14,7 +14,7 @@ DOWNLOAD_URLS = {
     f"models/{MODEL_NAMES['tracker']}.pt":
         "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt",
     f"models/{MODEL_NAMES['face']}.pt":
-        "https://github.com/akanametov/yolo-face/releases/download/1.0.0/yolov11n-face.pt"
+        "https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov8n-face.pt"
 }
 
 def download_file(url: str, dest_path: str) -> None:

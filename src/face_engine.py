@@ -74,7 +74,7 @@ class FaceEngine:
             # ASIAN AGE CALIBRATION
             raw_age = float(age)
             if raw_age >= 15.0 and raw_age < 55.0:
-                age = raw_age + 6.0
+                age = raw_age + 5.0
             elif raw_age >= 55.0:
                 age = raw_age + 4.0
 

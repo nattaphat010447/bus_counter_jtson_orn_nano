@@ -36,15 +36,54 @@ LOG_PATH    = "data/passenger_log.csv"
 LOG_DIR     = "logs"
 
 # --- Skip rates ปรับได้ ---
-TRACKER_EVERY_N_FRAMES = 2   # tracker วิ่งทุก 2 เฟรม
-FACE_EVERY_N_FRAMES    = 3   # face วิ่งทุก 3 เฟรม
+TRACKER_EVERY_N_FRAMES = 2
+FACE_EVERY_N_FRAMES    = 4
 
-JETSON_IMGSZ = 320   # ลดจาก 640 เพื่อเร่ง inference บน Jetson
+JETSON_IMGSZ = 320
 
 # ===========================================================
-# worker thread
+# กล้อง resolution cap ตัด bandwidth V4L2 ก่อน decode
 # ===========================================================
-def _face_worker(face_analyzer, in_q, out_q, stop_event):
+JETSON_CAM_W   = 640
+JETSON_CAM_H   = 480
+JETSON_CAM_FPS = 30
+
+# ===========================================================
+# CSV write queue ไม่ให้ main loop เสีย latency
+# ===========================================================
+_csv_q: Q.Queue = Q.Queue(maxsize=200)
+
+def _csv_writer_thread(log_path: str, stop_event: threading.Event) -> None:
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    file_exists = os.path.exists(log_path)
+    with open(log_path, mode='a', newline='', encoding='utf-8', buffering=1) as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["Timestamp", "Event_Type", "ID", "Gender", "Age", "Detail"])
+        while not stop_event.is_set() or not _csv_q.empty():
+            try:
+                row = _csv_q.get(timeout=0.2)
+                writer.writerow(row)
+            except Q.Empty:
+                continue
+
+def csv_log(row: list) -> None:
+    """Non-blocking CSV write"""
+    if _csv_q.full():
+        try:
+            _csv_q.get_nowait()
+        except Q.Empty:
+            pass
+    try:
+        _csv_q.put_nowait(row)
+    except Q.Full:
+        pass
+
+
+# ===========================================================
+# Face worker
+# ===========================================================
+def _face_worker(face_analyzer, in_q: Q.Queue, out_q: Q.Queue, stop_event: threading.Event):
     face_frame_n = 0
     logger = logging.getLogger("face_worker")
     while not stop_event.is_set():
@@ -71,6 +110,57 @@ def _face_worker(face_analyzer, in_q, out_q, stop_event):
         out_q.put(result)
 
 
+# ===========================================================
+# Display worker — imshow + waitKey ใน thread แยก
+# ===========================================================
+_display_top_q:  Q.Queue = Q.Queue(maxsize=1)
+_display_face_q: Q.Queue = Q.Queue(maxsize=1)
+_display_stop:   threading.Event = threading.Event()
+
+def _display_worker():
+    logger = logging.getLogger("display_worker")
+    while not _display_stop.is_set():
+        updated = False
+
+        try:
+            frame_top = _display_top_q.get_nowait()
+            cv2.imshow("Top-down Counting", frame_top)
+            updated = True
+        except Q.Empty:
+            pass
+
+        try:
+            frame_face = _display_face_q.get_nowait()
+            cv2.imshow("Facing Analysis", frame_face)
+            updated = True
+        except Q.Empty:
+            pass
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            _display_stop.set()
+            break
+
+        if not updated:
+            time.sleep(0.002)
+
+
+def _push_display(q: Q.Queue, frame) -> None:
+    """ทิ้งภาพเก่า ใส่ภาพใหม่ — ไม่ block"""
+    if q.full():
+        try:
+            q.get_nowait()
+        except Q.Empty:
+            pass
+    try:
+        q.put_nowait(frame)
+    except Q.Full:
+        pass
+
+
+# ===========================================================
+# Main
+# ===========================================================
 def main():
     setup_logging(log_dir=LOG_DIR)
     logger = logging.getLogger(__name__)
@@ -102,16 +192,19 @@ def main():
     logger.info("Face skip       : every %d frames (bg thread)", FACE_EVERY_N_FRAMES)
     logger.info("==========================================")
 
-    reader_top = StreamReader(TOP_DOWN_CAMERA)
+    # ส่ง resolution hint เข้า StreamReader
+    cam_hint = (JETSON_CAM_W, JETSON_CAM_H, JETSON_CAM_FPS) if on_jetson else None
+
+    reader_top = StreamReader(TOP_DOWN_CAMERA, resolution_hint=cam_hint)
     reader_top.start()
 
     if not single_camera_mode:
-        reader_face = StreamReader(FACING_CAMERA)
+        reader_face = StreamReader(FACING_CAMERA, resolution_hint=cam_hint)
         reader_face.start()
     else:
         reader_face = reader_top
 
-    time.sleep(2.0)
+    time.sleep(1.5)
 
     tracker_count = TrackerEngine(
         model_path=models['tracker'],
@@ -124,9 +217,10 @@ def main():
         imgsz=imgsz,
     )
 
+    stop_event  = threading.Event()
+
     face_in_q   = Q.Queue(maxsize=2)
     face_out_q  = Q.Queue(maxsize=2)
-    stop_event  = threading.Event()
     face_thread = threading.Thread(
         target=_face_worker,
         args=(face_analyzer, face_in_q, face_out_q, stop_event),
@@ -136,33 +230,38 @@ def main():
     face_thread.start()
     logger.info("FaceWorker thread started")
 
-    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
-    file_exists = os.path.exists(LOG_PATH)
-    log_file    = open(LOG_PATH, mode='a', newline='', encoding='utf-8', buffering=1)
-    csv_writer  = csv.writer(log_file)
-    if not file_exists:
-        csv_writer.writerow(["Timestamp", "Event_Type", "ID", "Gender", "Age", "Detail"])
+    csv_thread = threading.Thread(
+        target=_csv_writer_thread,
+        args=(LOG_PATH, stop_event),
+        daemon=True,
+        name="CsvWriter",
+    )
+    csv_thread.start()
+
+    display_thread = threading.Thread(
+        target=_display_worker,
+        daemon=True,
+        name="DisplayWorker",
+    )
+    display_thread.start()
 
     fps_window  = deque(maxlen=30)
     frame_count = 0
     prev_in, prev_out = 0, 0
-
     last_face_out    = None
     last_stable_faces: list = []
 
-    logger.info("Processing started — press 'q' to quit")
+    logger.info("Processing started — press 'q' in display window to quit")
 
     try:
-        while True:
-            frame_top = reader_top.get_frame(timeout=0.1)
+        while not _display_stop.is_set():
+            frame_top = reader_top.get_frame(timeout=0.05)
             if frame_top is None:
                 continue
 
-            frame_face = frame_top.copy() if single_camera_mode else reader_face.get_frame(timeout=0.05)
-
             frame_count += 1
 
-            # ---- Tracker main thread ----
+            # ---- Tracker (main thread) ----
             if frame_count % TRACKER_EVERY_N_FRAMES == 0:
                 t0 = time.perf_counter()
                 out_top, counts = tracker_count.process_frame(frame_top)
@@ -172,14 +271,20 @@ def main():
 
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if counts['in'] > prev_in:
-                    csv_writer.writerow([now, "WALK_IN",  "-", "-", "-", f"Total IN: {counts['in']}"])
+                    csv_log([now, "WALK_IN",  "-", "-", "-", f"Total IN: {counts['in']}"])
                     prev_in = counts['in']
                 if counts['out'] > prev_out:
-                    csv_writer.writerow([now, "WALK_OUT", "-", "-", "-", f"Total OUT: {counts['out']}"])
+                    csv_log([now, "WALK_OUT", "-", "-", "-", f"Total OUT: {counts['out']}"])
                     prev_out = counts['out']
 
                 cv2.putText(out_top, f"FPS: {avg_fps:.1f}", (20, 150), 2, 1, (0, 255, 0), 2)
-                cv2.imshow("Top-down Counting", out_top)
+                _push_display(_display_top_q, out_top)
+
+            # ---- Face camera non-blocking ----
+            if not single_camera_mode:
+                frame_face = reader_face.get_frame_nowait()
+            else:
+                frame_face = frame_top
 
             if frame_face is not None and not face_in_q.full():
                 try:
@@ -195,20 +300,19 @@ def main():
             if last_stable_faces:
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 for face in last_stable_faces:
-                    csv_writer.writerow([now, "FACE_DETECTED", face['id'], face['gender'], face['age'], "-"])
+                    csv_log([now, "FACE_DETECTED", face['id'], face['gender'], face['age'], "-"])
                     logger.info("Face logged — ID:%s %s %s yrs", face['id'], face['gender'], face['age'])
                 last_stable_faces = []
 
             if last_face_out is not None:
-                cv2.imshow("Facing Analysis", last_face_out)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                _push_display(_display_face_q, last_face_out)
 
     finally:
+        _display_stop.set()
         stop_event.set()
         face_thread.join(timeout=3.0)
-        log_file.close()
+        display_thread.join(timeout=2.0)
+        csv_thread.join(timeout=5.0)
         reader_top.stop()
         if not single_camera_mode:
             reader_face.stop()

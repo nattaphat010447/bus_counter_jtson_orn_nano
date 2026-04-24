@@ -1,5 +1,3 @@
-import torch
-torch.backends.cudnn.enabled = False
 import logging
 import cv2
 import numpy as np
@@ -22,19 +20,24 @@ class TrackerEngine:
         self._frames_since_seen  = {}
         self._PRUNE_AFTER_FRAMES = 30
 
+        # Pre-cache config values ไม่ต้อง .get() ทุก frame
+        self._conf     = float(self.config.get('YOLO_CONFIDENCE', 0.45))
+        self._iou      = float(self.config.get('YOLO_IOU', 0.50))
+        self._dz_x1_r  = float(self.config['DETECTION_ZONE']['x1'])
+        self._dz_x2_r  = float(self.config['DETECTION_ZONE']['x2'])
+        self._l1_y_r   = float(self.config['LINE_1_Y'])
+        self._l2_y_r   = float(self.config['LINE_2_Y'])
+
         logger.info("TrackerEngine ready — model: %s | imgsz: %d | config: %s",
                     model_path, imgsz, config_path)
 
     def process_frame(self, frame: np.ndarray) -> tuple[np.ndarray, dict]:
         h, w = frame.shape[:2]
 
-        dz = self.config['DETECTION_ZONE']
-        dz_x1 = int(dz['x1'] * w)
-        dz_x2 = int(dz['x2'] * w)
-
-        l1_y = int(self.config['LINE_1_Y'] * h)
-        l2_y = int(self.config['LINE_2_Y'] * h)
-
+        dz_x1 = int(self._dz_x1_r * w)
+        dz_x2 = int(self._dz_x2_r * w)
+        l1_y = int(self._l1_y_r * h)
+        l2_y = int(self._l2_y_r * h)
         top_line = min(l1_y, l2_y)
         bot_line = max(l1_y, l2_y)
 
@@ -42,8 +45,8 @@ class TrackerEngine:
             frame,
             classes=[0],
             persist=True,
-            conf=self.config.get('YOLO_CONFIDENCE', 0.45),
-            iou=self.config.get('YOLO_IOU', 0.50),
+            conf=self._conf,
+            iou=self._iou,
             imgsz=self.imgsz,
             verbose=False,
         )
@@ -88,8 +91,8 @@ class TrackerEngine:
 
         for box, track_id in zip(boxes, track_ids):
             x1, y1, x2, y2 = map(int, box)
-            cx = int((x1 + x2) / 2)
-            cy = int((y1 + y2) / 2)
+            cx = (x1 + x2) >> 1     # bit-shift แทน // 2
+            cy = (y1 + y2) >> 1
 
             is_in_x_bounds = dz_x1 <= cx <= dz_x2
 
@@ -102,9 +105,8 @@ class TrackerEngine:
                 }
             else:
                 history = self.track_history[track_id]
-
                 if not history['counted'] and is_in_x_bounds:
-                    prev_y  = history['last_y']
+                    prev_y = history['last_y']
                     spawn_y = history['spawn_y']
 
                     if prev_y < top_line <= cy:

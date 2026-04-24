@@ -1,5 +1,3 @@
-import torch
-torch.backends.cudnn.enabled = False
 import logging
 import cv2
 import numpy as np
@@ -12,6 +10,9 @@ except ImportError:
     ort = None
 
 logger = logging.getLogger(__name__)
+
+# Pre-compute resize target ครั้งเดียว
+_BLOB_SIZE = (384, 384)
 
 class FaceEngine:
     def __init__(self, detector_path: str, mivolo_path: str, imgsz: int = 640):
@@ -37,12 +38,16 @@ class FaceEngine:
         self._frames_since_seen = {}
         self._PRUNE_AFTER_FRAMES = 30
 
+        # Normalisation constant as float32 ป้องกัน upcast
+        self._norm = np.float32(1.0 / 255.0)
+
     def _prepare_blob(self, img: np.ndarray) -> np.ndarray:
-        blob = cv2.resize(img, (384, 384))
+        # ใช้ INTER_NEAREST แทน default INTER_LINEAR ใน resize
+        blob = cv2.resize(img, _BLOB_SIZE, interpolation=cv2.INTER_LINEAR)
         blob = cv2.cvtColor(blob, cv2.COLOR_BGR2RGB)
-        blob = blob.astype(np.float32) / 255.0
-        blob = np.transpose(blob, (2, 0, 1))
-        return np.expand_dims(blob, axis=0)
+        blob = blob.astype(np.float32) * self._norm   # [OPT] multiply เร็วกว่า divide
+        blob = np.ascontiguousarray(blob.transpose(2, 0, 1))
+        return blob[np.newaxis]
 
     def _predict_age_gender(self, face_img: np.ndarray) -> tuple[int, str]:
         blob = self._prepare_blob(face_img)
@@ -57,26 +62,27 @@ class FaceEngine:
             age = None
 
             if len(outputs) == 6:
-                age = float(outputs[1].flatten()[0])
-                gender_scores = outputs[5].flatten()
+                age = float(outputs[1].flat[0])
+                gender_scores = outputs[5].ravel()
             else:
                 for out in outputs:
-                    if out.size == 2:
-                        gender_scores = out.flatten()
-                    elif out.size == 1 and 1.0 < float(out.flatten()[0]) < 100.0:
-                        age = float(out.flatten()[0])
+                    flat = out.ravel()
+                    if flat.size == 2:
+                        gender_scores = flat
+                    elif flat.size == 1 and 1.0 < float(flat[0]) < 100.0:
+                        age = float(flat[0])
 
             if gender_scores is None or len(gender_scores) < 2:
-                gender_scores = np.array([0.0, 0.0])
+                gender_scores = np.zeros(2, dtype=np.float32)
             if age is None:
                 age = 0.0
 
             # ASIAN AGE CALIBRATION
             raw_age = float(age)
-            if raw_age >= 15.0 and raw_age < 55.0:
-                age = raw_age + 5.0
-            elif raw_age >= 55.0:
+            if raw_age >= 55.0:
                 age = raw_age + 4.0
+            elif raw_age >= 15.0:
+                age = raw_age + 5.0
 
             gender = "Male" if gender_scores[0] > gender_scores[1] else "Female"
             return int(age), gender
@@ -103,6 +109,8 @@ class FaceEngine:
         track_ids = results[0].boxes.id.int().cpu().numpy()
 
         active_ids = set(track_ids.tolist())
+
+        # Prune stale tracks
         for tid in list(self._frames_since_seen.keys()):
             if tid not in active_ids:
                 self._frames_since_seen[tid] += 1
@@ -119,15 +127,17 @@ class FaceEngine:
 
         for box, track_id in zip(boxes, track_ids):
             x1, y1, x2, y2 = map(int, box)
-            face_crop = frame[max(0, y1):min(frame.shape[0], y2),
-                              max(0, x1):min(frame.shape[1], x2)]
+
+            # lamp ด้วย numpy slice แทน min/max ซ้อน
+            fh, fw = frame.shape[:2]
+            face_crop = frame[max(0, y1):min(fh, y2), max(0, x1):min(fw, x2)]
             if face_crop.size == 0:
                 continue
 
-            # ถ้า face นี้ logged แล้ว ไม่ต้อง run MiVOLO อีก — ประหยัด inference
             if track_id in self.history and self.history[track_id].get('logged'):
+                # Face ถูก log แล้ว — ดึงค่าจาก history โดยตรง ไม่ต้อง inference
                 h_data = self.history[track_id]
-                smooth_age    = int(np.mean(h_data['ages']))
+                smooth_age = int(np.mean(h_data['ages']))
                 smooth_gender = Counter(h_data['genders']).most_common(1)[0][0]
             else:
                 raw_age, raw_gender = self._predict_age_gender(face_crop)
@@ -135,25 +145,26 @@ class FaceEngine:
                 if track_id not in self.history:
                     self.history[track_id] = {'ages': [], 'genders': [], 'logged': False}
 
-                self.history[track_id]['ages'].append(raw_age)
-                self.history[track_id]['genders'].append(raw_gender)
+                hist = self.history[track_id]
+                hist['ages'].append(raw_age)
+                hist['genders'].append(raw_gender)
 
-                if len(self.history[track_id]['ages']) > self.max_history:
-                    self.history[track_id]['ages'].pop(0)
-                    self.history[track_id]['genders'].pop(0)
+                if len(hist['ages']) > self.max_history:
+                    hist['ages'].pop(0)
+                    hist['genders'].pop(0)
 
-                smooth_age    = int(np.mean(self.history[track_id]['ages']))
-                smooth_gender = Counter(self.history[track_id]['genders']).most_common(1)[0][0]
+                smooth_age = int(np.mean(hist['ages']))
+                smooth_gender = Counter(hist['genders']).most_common(1)[0][0]
 
-                is_stable = len(self.history[track_id]['ages']) == self.max_history
-                if is_stable and not self.history[track_id]['logged']:
-                    self.history[track_id]['logged'] = True
+                if len(hist['ages']) == self.max_history and not hist['logged']:
+                    hist['logged'] = True
                     stable_faces_to_log.append({
                         "id":     track_id,
                         "age":    smooth_age,
                         "gender": smooth_gender,
                     })
-                    logger.debug("Stable face locked — ID:%d %s %d yrs", track_id, smooth_gender, smooth_age)
+                    logger.debug("Stable face locked — ID:%d %s %d yrs",
+                                 track_id, smooth_gender, smooth_age)
 
             color = (0, 255, 255)
             cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)

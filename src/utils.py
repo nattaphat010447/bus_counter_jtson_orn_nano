@@ -1,15 +1,5 @@
 """
 utils.py — Shared utilities สำหรับทั้งโปรเจ็ค
-
-ใช้งาน:
-    from src.utils import is_jetson, setup_logging
-
-    # ใน main.py เรียก setup_logging() ครั้งเดียว
-    setup_logging()
-
-    # ในทุก module ใช้ getLogger ตามปกติ
-    import logging
-    logger = logging.getLogger(__name__)
 """
 
 import logging
@@ -37,10 +27,6 @@ def get_platform_label() -> str:
     return 'Jetson' if is_jetson() else 'Linux'
 
 # ---------------------------------------------------------------------------
-# Logging setup
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # Model registry
 # ---------------------------------------------------------------------------
 
@@ -51,24 +37,38 @@ MODEL_NAMES = {
 }
 
 def resolve_model_paths(on_jetson: bool) -> dict:
-    """คืน dict ของ model path จริงตาม platform"""
-    ext_tracker = '.pt'
-    ext_face    = '.pt'
-    
-    mivolo_stem = 'mivolo_fp16' if on_jetson else MODEL_NAMES['mivolo']
-    mivolo_ext  = '.engine'     if on_jetson else '.onnx'
-    
+    """
+    คืน dict ของ model path ตาม platform
+    บน Jetson: ใช้ .engine ถ้ามี — fallback เป็น .pt อัตโนมัติ
+    """
+    if on_jetson:
+        tracker_path = _engine_or_pt(MODEL_NAMES['tracker'])
+        face_path    = _engine_or_pt(MODEL_NAMES['face'])
+        mivolo_path  = f"models/mivolo_fp16.engine"
+    else:
+        tracker_path = f"models/{MODEL_NAMES['tracker']}.pt"
+        face_path    = f"models/{MODEL_NAMES['face']}.pt"
+        mivolo_path  = f"models/{MODEL_NAMES['mivolo']}.onnx"
+
     return {
-        "tracker": f"models/{MODEL_NAMES['tracker']}{ext_tracker}",
-        "face":    f"models/{MODEL_NAMES['face']}{ext_face}",
-        "mivolo":  f"models/{mivolo_stem}{mivolo_ext}",
+        "tracker": tracker_path,
+        "face":    face_path,
+        "mivolo":  mivolo_path,
     }
+
+def _engine_or_pt(stem: str) -> str:
+    """เช็คว่ามี .engine file ไหม ถ้ามีใช้ ถ้าไม่มี fallback .pt"""
+    engine_path = f"models/{stem}.engine"
+    pt_path     = f"models/{stem}.pt"
+    if os.path.exists(engine_path):
+        return engine_path
+    return pt_path
 
 # ---------------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------------
 
-_LOG_FORMAT = '%(asctime)s [%(levelname)-8s] %(name)s — %(message)s'
+_LOG_FORMAT  = '%(asctime)s [%(levelname)-8s] %(name)s — %(message)s'
 _DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 def setup_logging(
@@ -77,25 +77,15 @@ def setup_logging(
     max_bytes: int = 5 * 1024 * 1024,
     backup_count: int = 5,
 ) -> None:
-    """
-    ตั้งค่า root logger ครั้งเดียวใน main.py
-    ทุก module ที่ใช้ logging.getLogger(__name__) จะได้รับการตั้งค่านี้อัตโนมัติ
-
-    Output:
-        - Console  : INFO ขึ้นไป
-        - File     : DEBUG ขึ้นไป พร้อม rotation ที่ logs/app.log
-    """
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, 'app.log')
 
     formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
 
-    # Console handler — INFO+
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
 
-    # Rotating file handler — DEBUG+ พร้อม auto-rotate
     file_handler = logging.handlers.RotatingFileHandler(
         log_path,
         maxBytes=max_bytes,
@@ -108,7 +98,6 @@ def setup_logging(
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
 
-    # ป้องกัน handler ซ้ำถ้าถูกเรียกมากกว่าหนึ่งครั้ง
     if not root.handlers:
         root.addHandler(console_handler)
         root.addHandler(file_handler)

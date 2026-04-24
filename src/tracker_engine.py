@@ -1,5 +1,4 @@
 import torch
-torch.backends.cudnn.enabled = False
 import logging
 import cv2
 import numpy as np
@@ -9,8 +8,9 @@ from ultralytics import YOLO
 logger = logging.getLogger(__name__)
 
 class TrackerEngine:
-    def __init__(self, model_path: str, config_path: str):
+    def __init__(self, model_path: str, config_path: str, imgsz: int = 640):
         self.model = YOLO(model_path, task="detect")
+        self.imgsz = imgsz
 
         with open(config_path, 'r') as f:
             self.config = json.load(f)
@@ -21,7 +21,8 @@ class TrackerEngine:
         self._frames_since_seen  = {}
         self._PRUNE_AFTER_FRAMES = 30
 
-        logger.info("TrackerEngine ready — model: %s | config: %s", model_path, config_path)
+        logger.info("TrackerEngine ready — model: %s | imgsz: %d | config: %s",
+                    model_path, imgsz, config_path)
 
     def process_frame(self, frame: np.ndarray) -> tuple[np.ndarray, dict]:
         h, w = frame.shape[:2]
@@ -42,6 +43,7 @@ class TrackerEngine:
             persist=True,
             conf=self.config.get('YOLO_CONFIDENCE', 0.45),
             iou=self.config.get('YOLO_IOU', 0.50),
+            imgsz=self.imgsz,
             verbose=False,
         )
 
@@ -60,7 +62,6 @@ class TrackerEngine:
 
         valid_mask = np.all(np.isfinite(boxes), axis=1)
         if not np.any(valid_mask):
-            # All detections are garbage — treat frame as empty
             logger.warning("All bounding boxes are NaN/Inf — TRT engine may be "
                            "mismatched. Rebuild with: yolo export model=yolov8n.pt "
                            "format=engine device=0 half=True")
@@ -69,7 +70,6 @@ class TrackerEngine:
         boxes     = boxes[valid_mask]
         track_ids = track_ids[valid_mask]
 
-        # Prune stale IDs
         active_ids = set(track_ids.tolist())
         for tid in list(self._frames_since_seen.keys()):
             if tid not in active_ids:
@@ -103,8 +103,8 @@ class TrackerEngine:
                 history = self.track_history[track_id]
 
                 if not history['counted'] and is_in_x_bounds:
-                    prev_y   = history['last_y']
-                    spawn_y  = history['spawn_y']
+                    prev_y  = history['last_y']
+                    spawn_y = history['spawn_y']
 
                     if prev_y < top_line <= cy:
                         history['state'] = 'hit_top'

@@ -1,5 +1,6 @@
 import os
 import torch
+torch.backends.cudnn.enabled = False
 
 try:
     from ultralytics.nn.tasks import DetectionModel

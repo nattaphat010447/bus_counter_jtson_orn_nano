@@ -179,8 +179,13 @@ def open_capture(source):
     elif isinstance(source, str) and source.startswith('/dev/'):
         # Linux device node
         cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+        #cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        #cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
         cap.set(cv2.CAP_PROP_FPS, 30)
     else:
         # Video file
